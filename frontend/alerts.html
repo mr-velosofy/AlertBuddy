@@ -1,0 +1,239 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>AlertBuddy - Live Alerts</title>
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <style>
+      html,
+      body {
+        height: 100%;
+        margin: 0;
+        background: transparent;
+        overflow: hidden;
+      }
+      #overlay {
+        position: fixed;
+        inset: 0;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        pointer-events: none;
+      }
+      .alert {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        opacity: 0;
+        transform: scale(0.95);
+        transition: opacity 400ms ease, transform 400ms ease;
+      }
+      .alert.show {
+        opacity: 1;
+        transform: scale(1);
+      }
+      .alert.hide {
+        opacity: 0 !important;
+        transform: scale(0.95) !important;
+        transition: opacity 500ms ease, transform 500ms ease;
+      }
+      .gif {
+        max-width: 350px;
+        max-height: 350px;
+      }
+      .title .name,
+      .title .amount {
+        color: #24ff92; /* bright green */
+      }
+      .title .donated {
+        color: #ffffff; /* normal white for "donated" */
+      }
+      .title {
+        margin-top: 8px;
+        font-size: 42px;
+        font-weight: 700;
+        font-family: sans-serif;
+        max-width: 600px; /* set max width */
+        text-align: center; /* center text */
+        word-wrap: break-word; /* break long words if needed */
+        white-space: normal; /* allow wrapping */
+      }
+
+      .message {
+        margin-top: 4px;
+        font-size: 20px;
+        color: #dddddd;
+        font-family: sans-serif;
+        text-align: center;
+        max-width: 600px; /* same max width */
+        word-wrap: break-word; /* wrap long words */
+        white-space: normal; /* wrap to next line */
+      }
+    </style>
+  </head>
+  <body>
+    <div id="overlay"></div>
+    <audio id="alert-audio" preload="auto"></audio>
+    <script>
+      const pathParts = window.location.pathname.split("/");
+      const puuid = pathParts[pathParts.length - 1] || "";
+      if (!puuid) {
+        document.body.innerHTML = "<h2 style='color:white'>Invalid PUUID</h2>";
+        throw new Error("Missing puuid");
+      }
+      const host = window.location.host;
+      let ws;
+      const overlay = document.getElementById("overlay");
+      const audioEl = document.getElementById("alert-audio");
+
+      const queue = [];
+      let isPlaying = false;
+
+      function connect() {
+        ws = new WebSocket(`ws://${host}/alerts/${puuid}`);
+        ws.onmessage = (ev) => {
+          try {
+            const payload = JSON.parse(ev.data);
+            enqueue(payload);
+          } catch (e) {
+            console.error("Invalid payload", e);
+          }
+        };
+        ws.onclose = () => setTimeout(connect, 2000);
+      }
+
+      function enqueue(n) {
+        queue.push(n);
+        if (!isPlaying) playNext();
+      }
+
+      async function playNext() {
+        if (!queue.length) {
+          isPlaying = false;
+          return;
+        }
+        isPlaying = true;
+        const notif = queue.shift();
+        await showAlert(notif);
+        setTimeout(playNext, 500);
+      }
+
+      function buildAlert(n) {
+        const div = document.createElement("div");
+        div.className = "alert";
+
+        const img = document.createElement("img");
+        img.className = "gif";
+        img.src = n.alert_gif || "";
+        div.appendChild(img);
+
+        const title = document.createElement("div");
+        title.className = "title";
+
+        // split into name + "donated" + amount
+        let t = n.title || "";
+        const parts = t.split("donated");
+        if (parts.length === 2) {
+          title.innerHTML = `<span class="name">${escapeHtml(
+            parts[0].trim()
+          )}</span> <span class="donated">donated</span> <span class="amount">${escapeHtml(
+            parts[1].trim()
+          )}</span>`;
+        } else {
+          title.textContent = t;
+        }
+        div.appendChild(title);
+
+        if (n.text) {
+          const msg = document.createElement("div");
+          msg.className = "message";
+          msg.textContent = n.text;
+          div.appendChild(msg);
+        }
+        return div;
+      }
+
+      function escapeHtml(s) {
+        return (s + "").replace(
+          /[&<>"']/g,
+          (m) =>
+            ({
+              "&": "&amp;",
+              "<": "&lt;",
+              ">": "&gt;",
+              '"': "&quot;",
+              "'": "&#39;",
+            }[m])
+        );
+      }
+
+      function speakText(text) {
+        if (!("speechSynthesis" in window)) {
+          console.warn("TTS not supported");
+          return;
+        }
+
+        function doSpeak() {
+          const voices = speechSynthesis.getVoices();
+          const hindiVoice = voices.find(
+            (v) => v.name === "Google हिन्दी" && v.lang === "hi-IN"
+          );
+
+          if (!hindiVoice) {
+            console.warn("Google हिन्दी voice not found, using default voice.");
+          }
+
+          const utterance = new SpeechSynthesisUtterance(text);
+          utterance.lang = "hi-IN";
+          utterance.rate = 1;
+          utterance.pitch = 1;
+          if (hindiVoice) utterance.voice = hindiVoice;
+
+          speechSynthesis.speak(utterance);
+        }
+
+        // If voices already loaded, speak immediately
+        if (speechSynthesis.getVoices().length > 0) {
+          doSpeak();
+        } else {
+          // Wait for voices to load
+          speechSynthesis.onvoiceschanged = doSpeak;
+        }
+      }
+
+      function showAlert(n) {
+        return new Promise((res) => {
+          overlay.innerHTML = "";
+          const node = buildAlert(n);
+          overlay.appendChild(node);
+
+          requestAnimationFrame(() => node.classList.add("show"));
+          // 🔊 Speak the donation text if it contains "donated"
+          if (n.title && n.title.includes("donated")) {
+            textToSpeech = n.title + " ? " + n.text
+            speakText(textToSpeech);
+          }
+          // play audio after 1s
+          try {
+            audioEl.pause();
+            audioEl.currentTime = 0;
+            audioEl.src = n.alert_audio || "";
+            setTimeout(() => audioEl.play().catch(() => {}), 100);
+          } catch (e) {}
+
+          setTimeout(() => {
+            node.classList.add("hide");
+            setTimeout(() => {
+              overlay.innerHTML = "";
+              res();
+            }, 500);
+          }, 10000); // 10s
+        });
+      }
+
+      connect();
+    </script>
+  </body>
+</html>
