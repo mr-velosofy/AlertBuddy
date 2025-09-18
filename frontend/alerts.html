@@ -72,6 +72,8 @@
         white-space: normal; /* wrap to next line */
       }
     </style>
+    <!-- ✅ ResponsiveVoice JS -->
+    <script src="https://code.responsivevoice.org/responsivevoice.js"></script>
   </head>
   <body>
     <div id="overlay"></div>
@@ -171,37 +173,15 @@
         );
       }
 
+      // ✅ Use ResponsiveVoice for Hindi TTS
       function speakText(text) {
-        if (!("speechSynthesis" in window)) {
-          console.warn("TTS not supported");
-          return;
-        }
-
-        function doSpeak() {
-          const voices = speechSynthesis.getVoices();
-          const hindiVoice = voices.find(
-            (v) => v.name === "Google हिन्दी" && v.lang === "hi-IN"
-          );
-
-          if (!hindiVoice) {
-            console.warn("Google हिन्दी voice not found, using default voice.");
-          }
-
-          const utterance = new SpeechSynthesisUtterance(text);
-          utterance.lang = "hi-IN";
-          utterance.rate = 1;
-          utterance.pitch = 1;
-          if (hindiVoice) utterance.voice = hindiVoice;
-
-          speechSynthesis.speak(utterance);
-        }
-
-        // If voices already loaded, speak immediately
-        if (speechSynthesis.getVoices().length > 0) {
-          doSpeak();
+        if (responsiveVoice.voiceSupport()) {
+          responsiveVoice.speak(text, "Hindi Female", {
+            rate: 1,
+            pitch: 1,
+          });
         } else {
-          // Wait for voices to load
-          speechSynthesis.onvoiceschanged = doSpeak;
+          console.warn("ResponsiveVoice not supported");
         }
       }
 
@@ -212,12 +192,14 @@
           overlay.appendChild(node);
 
           requestAnimationFrame(() => node.classList.add("show"));
+
           // 🔊 Speak the donation text if it contains "donated"
           if (n.title && n.title.includes("donated")) {
-            textToSpeech = n.title + " ? " + n.text;
+            const textToSpeech = n.title + " " + (n.text || "");
             speakText(textToSpeech);
           }
-          // play audio after 1s
+
+          // play audio after 100ms
           try {
             audioEl.pause();
             audioEl.currentTime = 0;
