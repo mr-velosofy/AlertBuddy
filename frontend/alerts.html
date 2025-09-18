@@ -92,7 +92,9 @@
       let isPlaying = false;
 
       function connect() {
-        ws = new WebSocket(`ws://${host}/alerts/${puuid}`);
+        const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+        ws = new WebSocket(`${protocol}//${host}/alerts/${puuid}`);
+
         ws.onmessage = (ev) => {
           try {
             const payload = JSON.parse(ev.data);
@@ -212,7 +214,7 @@
           requestAnimationFrame(() => node.classList.add("show"));
           // 🔊 Speak the donation text if it contains "donated"
           if (n.title && n.title.includes("donated")) {
-            textToSpeech = n.title + " ? " + n.text
+            textToSpeech = n.title + " ? " + n.text;
             speakText(textToSpeech);
           }
           // play audio after 1s
